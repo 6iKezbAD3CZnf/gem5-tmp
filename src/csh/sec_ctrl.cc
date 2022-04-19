@@ -18,6 +18,12 @@ SecCtrl::CPUSidePort::getAddrRanges() const
     return ctrl->getAddrRanges();
 }
 
+Tick
+SecCtrl::CPUSidePort::recvAtomic(PacketPtr pkt)
+{
+    return ctrl->handleAtomic(pkt);
+}
+
 void
 SecCtrl::CPUSidePort::recvFunctional(PacketPtr pkt)
 {
@@ -76,6 +82,12 @@ void
 SecCtrl::handleRespRetry()
 {
     memSidePort.sendRetryResp();
+}
+
+Tick
+SecCtrl::handleAtomic(PacketPtr pkt)
+{
+    return memSidePort.sendAtomic(pkt);
 }
 
 void

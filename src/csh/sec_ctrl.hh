@@ -25,8 +25,7 @@ class SecCtrl : public SimObject
         AddrRangeList getAddrRanges() const override;
 
       protected:
-        Tick recvAtomic(PacketPtr pkt) override
-        { panic("recvAtomic unimpl."); }
+        Tick recvAtomic(PacketPtr pkt) override;
         void recvFunctional(PacketPtr pkt) override;
         bool recvTimingReq(PacketPtr pkt) override;
         void recvRespRetry() override;
@@ -53,6 +52,7 @@ class SecCtrl : public SimObject
     bool handleResponse(PacketPtr pkt);
     void handleReqRetry();
     void handleRespRetry();
+    Tick handleAtomic(PacketPtr pkt);
     void handleFunctional(PacketPtr pkt);
     AddrRangeList getAddrRanges() const;
     void handleRangeChange();

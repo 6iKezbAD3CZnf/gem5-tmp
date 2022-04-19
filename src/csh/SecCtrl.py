@@ -8,3 +8,4 @@ class SecCtrl(SimObject):
 
     cpu_side_port = ResponsePort("CPU side port")
     mem_side_port = RequestPort("Memory side port")
+    meta_port = RequestPort("Meta port")

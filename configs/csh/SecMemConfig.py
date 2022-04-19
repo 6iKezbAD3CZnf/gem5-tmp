@@ -240,7 +240,11 @@ def config_mem(options, system):
             # Insert the security controlloers between
             # the memory controllers and the membus
             subsystem.sec_ctrl = SecCtrl()
-            mem_ctrls[i].port = subsystem.sec_ctrl.mem_side_port
+            subsystem.sec_xbar = SystemXBar()
+            subsystem.sec_xbar.cpu_side_ports =
+                subsystem.sec_ctrl.mem_side_port
+            subsystem.sec_xbar.cpu_side_ports = subsystem.sec_ctrl.meta_port
+            mem_ctrls[i].port = subsystem.sec_xbar.mem_side_ports
             xbar.mem_side_ports = subsystem.sec_ctrl.cpu_side_port
 
     subsystem.mem_ctrls = mem_ctrls

@@ -58,6 +58,7 @@ class SecCtrl : public SimObject
         void recvRangeChange() override;
     };
 
+    PacketPtr createPkt(Addr addr, unsigned size, bool isRead);
     bool handleRequest(PacketPtr pkt);
     bool handleResponse(PacketPtr pkt);
     Tick handleAtomic(PacketPtr pkt);
@@ -67,7 +68,13 @@ class SecCtrl : public SimObject
 
     CPUSidePort cpuSidePort;
     MemSidePort memSidePort;
+    MemSidePort metaPort;
+    Addr dataBorder;
+    uint32_t flags;
+    uint16_t requestorId;
     bool blocked;
+    bool meta_blocked;
+    PacketPtr responsePkt;
 
   public:
     SecCtrl(const SecCtrlParams &p);

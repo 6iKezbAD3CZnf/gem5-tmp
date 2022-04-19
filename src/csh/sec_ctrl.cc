@@ -10,7 +10,11 @@ SecCtrl::SecCtrl(const SecCtrlParams &p) :
     SimObject(p),
     cpuSidePort(name() + ".cpu_side_port", this),
     memSidePort(name() + ".mem_side_port", this),
-    blocked(false)
+    metaPort(name() + ".meta_port", this),
+    dataBorder(0),
+    flags(0), requestorId(0),
+    blocked(false), meta_blocked(false),
+    responsePkt(nullptr)
 {
     DPRINTF(SecCtrl, "Constructing\n");
 }
@@ -38,7 +42,26 @@ SecCtrl::CPUSidePort::trySendRetry()
 AddrRangeList
 SecCtrl::CPUSidePort::getAddrRanges() const
 {
-    return ctrl->getAddrRanges();
+    DPRINTF(SecCtrl, "Sending new ranges\n");
+
+    AddrRangeList addrRanges = ctrl->getAddrRanges();
+    panic_if(addrRanges.size() != 1, "Multiple addresses");
+    AddrRange addrRange = addrRanges.front();
+    panic_if(addrRange.interleaved(), "This address is interleaved");
+
+    ctrl->dataBorder = addrRange.end() * 3 / 4;
+    AddrRange dataAddrRange = AddrRange(
+            addrRange.start(),
+            ctrl->dataBorder);
+    AddrRange metaAddrRange = AddrRange(
+            dataAddrRange.end(),
+            addrRange.end());
+
+    DPRINTF(SecCtrl,
+            "Original range is %s. New range is %s\n",
+                addrRange.to_string(),
+                dataAddrRange.to_string());
+    return { dataAddrRange };
 }
 
 Tick
@@ -56,6 +79,7 @@ SecCtrl::CPUSidePort::recvFunctional(PacketPtr pkt)
 bool
 SecCtrl::CPUSidePort::recvTimingReq(PacketPtr pkt)
 {
+    DPRINTF(SecCtrl, "Got request %s\n", pkt->print());
     if (!ctrl->handleRequest(pkt)) {
         needRetry = true;
         return false;
@@ -114,29 +138,60 @@ SecCtrl::MemSidePort::recvRangeChange()
     ctrl->handleRangeChange();
 }
 
+PacketPtr
+SecCtrl::createPkt(Addr addr, unsigned size, bool isRead)
+{
+    RequestPtr req(new Request(addr, size, flags, requestorId));
+    MemCmd cmd = isRead ? MemCmd::ReadReq : MemCmd::WriteReq;
+    PacketPtr retPkt = new Packet(req, cmd);
+    uint8_t *reqData = new uint8_t[size]; // just empty here
+    retPkt->dataDynamic(reqData);
+
+    return retPkt;
+}
+
 bool
 SecCtrl::handleRequest(PacketPtr pkt)
 {
-    if (blocked) {
+    if (blocked || meta_blocked) {
+        DPRINTF(SecCtrl, "Rejected %s\n", pkt->print());
         return false;
     }
 
-    DPRINTF(SecCtrl, "Got request for addr %#x\n", pkt->getAddr());
+    // DPRINTF(SecCtrl, "Got request for addr %#x\n", pkt->getAddr());
 
     blocked = true;
+    meta_blocked = true;
     memSidePort.sendPacket(pkt);
+    PacketPtr metaPkt = createPkt(dataBorder, 1, true);
+    metaPort.sendPacket(metaPkt);
     return true;
 }
 
 bool
 SecCtrl::handleResponse(PacketPtr pkt)
 {
-    assert(blocked);
-    DPRINTF(SecCtrl, "Got response for addr %#x\n", pkt->getAddr());
+    if (pkt->getAddr() < dataBorder) {
+        assert(blocked);
+        DPRINTF(SecCtrl, "Got response for addr %#x\n", pkt->getAddr());
 
-    blocked = false;
-    cpuSidePort.sendPacket(pkt);
-    cpuSidePort.trySendRetry();
+        blocked = false;
+        responsePkt = pkt;
+    } else {
+        assert(meta_blocked);
+        DPRINTF(SecCtrl, "Got meta response for addr %#x\n", pkt->getAddr());
+
+        meta_blocked = false;
+    }
+
+    if (!blocked && !meta_blocked) {
+        if (responsePkt != nullptr) {
+            cpuSidePort.sendPacket(responsePkt);
+            responsePkt = nullptr;
+        }
+        cpuSidePort.trySendRetry();
+    }
+
     return true;
 }
 
@@ -155,7 +210,6 @@ SecCtrl::handleFunctional(PacketPtr pkt)
 AddrRangeList
 SecCtrl::getAddrRanges() const
 {
-    DPRINTF(SecCtrl, "Sending new ranges\n");
     return memSidePort.getAddrRanges();
 }
 
@@ -174,6 +228,8 @@ SecCtrl::getPort(const std::string &if_name, PortID idx)
         return cpuSidePort;
     } else if (if_name == "mem_side_port") {
         return memSidePort;
+    } else if (if_name == "meta_port") {
+        return metaPort;
     } else {
         return SimObject::getPort(if_name, idx);
     }

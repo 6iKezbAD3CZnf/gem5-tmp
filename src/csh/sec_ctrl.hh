@@ -15,13 +15,19 @@ class SecCtrl : public SimObject
     {
       private:
         SecCtrl *ctrl;
+        bool needRetry;
+        PacketPtr blockedPacket;
 
       public:
         CPUSidePort(const std::string& name, SecCtrl* _ctrl):
           ResponsePort(name, _ctrl),
-          ctrl(_ctrl)
+          ctrl(_ctrl),
+          needRetry(false),
+          blockedPacket(nullptr)
         {}
 
+        void sendPacket(PacketPtr pkt);
+        void trySendRetry();
         AddrRangeList getAddrRanges() const override;
 
       protected:
@@ -35,12 +41,16 @@ class SecCtrl : public SimObject
     {
       private:
         SecCtrl *ctrl;
+        PacketPtr blockedPacket;
 
       public:
         MemSidePort(const std::string& name, SecCtrl* _ctrl):
           RequestPort(name, _ctrl),
-          ctrl(_ctrl)
+          ctrl(_ctrl),
+          blockedPacket(nullptr)
         {}
+
+        void sendPacket(PacketPtr ptr);
 
       protected:
         bool recvTimingResp(PacketPtr pkt) override;
@@ -50,8 +60,6 @@ class SecCtrl : public SimObject
 
     bool handleRequest(PacketPtr pkt);
     bool handleResponse(PacketPtr pkt);
-    void handleReqRetry();
-    void handleRespRetry();
     Tick handleAtomic(PacketPtr pkt);
     void handleFunctional(PacketPtr pkt);
     AddrRangeList getAddrRanges() const;
@@ -59,6 +67,7 @@ class SecCtrl : public SimObject
 
     CPUSidePort cpuSidePort;
     MemSidePort memSidePort;
+    bool blocked;
 
   public:
     SecCtrl(const SecCtrlParams &p);

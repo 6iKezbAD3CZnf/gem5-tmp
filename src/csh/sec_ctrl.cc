@@ -9,8 +9,31 @@ namespace gem5
 SecCtrl::SecCtrl(const SecCtrlParams &p) :
     SimObject(p),
     cpuSidePort(name() + ".cpu_side_port", this),
-    memSidePort(name() + ".mem_side_port", this)
-{}
+    memSidePort(name() + ".mem_side_port", this),
+    blocked(false)
+{
+    DPRINTF(SecCtrl, "Constructing\n");
+}
+
+void
+SecCtrl::CPUSidePort::sendPacket(PacketPtr pkt)
+{
+    panic_if(blockedPacket != nullptr, "Should never try to send if blocked!");
+
+    if (!sendTimingResp(pkt)) {
+        blockedPacket = pkt;
+    }
+}
+
+void
+SecCtrl::CPUSidePort::trySendRetry()
+{
+    if (needRetry && blockedPacket == nullptr) {
+        needRetry = false;
+        DPRINTF(SecCtrl, "Sending retry req for %d\n", id);
+        sendRetryReq();
+    }
+}
 
 AddrRangeList
 SecCtrl::CPUSidePort::getAddrRanges() const
@@ -33,13 +56,39 @@ SecCtrl::CPUSidePort::recvFunctional(PacketPtr pkt)
 bool
 SecCtrl::CPUSidePort::recvTimingReq(PacketPtr pkt)
 {
-    return ctrl->handleRequest(pkt);
+    if (!ctrl->handleRequest(pkt)) {
+        needRetry = true;
+        return false;
+    } else {
+        return true;
+    }
 }
 
 void
 SecCtrl::CPUSidePort::recvRespRetry()
 {
-    ctrl->handleRespRetry();
+    assert(blockedPacket != nullptr);
+
+    PacketPtr pkt = blockedPacket;
+    blockedPacket= nullptr;
+
+    sendPacket(pkt);
+}
+
+void
+SecCtrl::MemSidePort::sendPacket(PacketPtr pkt)
+{
+    panic_if(blockedPacket != nullptr, "Should never try to send if blocked!");
+
+    bool needsResponse = pkt->needsResponse();
+
+    if (sendTimingReq(pkt)) {
+        if (!needsResponse) {
+            ctrl->blocked = false;
+        }
+    } else {
+        blockedPacket = pkt;
+    }
 }
 
 bool
@@ -51,7 +100,12 @@ SecCtrl::MemSidePort::recvTimingResp(PacketPtr pkt)
 void
 SecCtrl::MemSidePort::recvReqRetry()
 {
-    ctrl->handleReqRetry();
+    assert(blockedPacket != nullptr);
+
+    PacketPtr pkt = blockedPacket;
+    blockedPacket = nullptr;
+
+    sendPacket(pkt);
 }
 
 void
@@ -63,25 +117,27 @@ SecCtrl::MemSidePort::recvRangeChange()
 bool
 SecCtrl::handleRequest(PacketPtr pkt)
 {
-    return memSidePort.sendTimingReq(pkt);
+    if (blocked) {
+        return false;
+    }
+
+    DPRINTF(SecCtrl, "Got request for addr %#x\n", pkt->getAddr());
+
+    blocked = true;
+    memSidePort.sendPacket(pkt);
+    return true;
 }
 
 bool
 SecCtrl::handleResponse(PacketPtr pkt)
 {
-    return cpuSidePort.sendTimingResp(pkt);
-}
+    assert(blocked);
+    DPRINTF(SecCtrl, "Got response for addr %#x\n", pkt->getAddr());
 
-void
-SecCtrl::handleReqRetry()
-{
-    cpuSidePort.sendRetryReq();
-}
-
-void
-SecCtrl::handleRespRetry()
-{
-    memSidePort.sendRetryResp();
+    blocked = false;
+    cpuSidePort.sendPacket(pkt);
+    cpuSidePort.trySendRetry();
+    return true;
 }
 
 Tick

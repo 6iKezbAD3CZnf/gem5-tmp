@@ -10,10 +10,15 @@ SecCtrl::SecCtrl(const SecCtrlParams &p) :
     SimObject(p),
     cpuSidePort(name() + ".cpu_side_port", this),
     memSidePort(name() + ".mem_side_port", this),
-    metaPort(name() + ".meta_port", this),
+    cntPort(name() + ".cnt_port", this),
+    mtPort(name() + ".mt_port", this),
+    macPort(name() + ".mac_port", this),
     dataBorder(0),
     flags(0), requestorId(0),
-    blocked(false), meta_blocked(false),
+    blocked(false),
+    cnt_blocked(false),
+    mt_blocked(false),
+    mac_blocked(false),
     responsePkt(nullptr)
 {
     DPRINTF(SecCtrl, "Constructing\n");
@@ -49,13 +54,12 @@ SecCtrl::CPUSidePort::getAddrRanges() const
     AddrRange addrRange = addrRanges.front();
     panic_if(addrRange.interleaved(), "This address is interleaved");
 
-    ctrl->dataBorder = addrRange.end() * 3 / 4;
+    ctrl->dataBorder = addrRange.end() * 2 / 5;
+    ctrl->cntBorder = addrRange.end() * 3 / 5;
+    ctrl->mtBorder = addrRange.end() * 4 / 5;
     AddrRange dataAddrRange = AddrRange(
             addrRange.start(),
             ctrl->dataBorder);
-    AddrRange metaAddrRange = AddrRange(
-            dataAddrRange.end(),
-            addrRange.end());
 
     DPRINTF(SecCtrl,
             "Original range is %s. New range is %s\n",
@@ -135,7 +139,11 @@ SecCtrl::MemSidePort::recvReqRetry()
 void
 SecCtrl::MemSidePort::recvRangeChange()
 {
-    ctrl->handleRangeChange();
+    DPRINTF(SecCtrl, "recvRangeChange\n");
+
+    // DPRINTF(SecCtrl, "port name = %s\n", name());
+    if (name() == "system.sec_ctrl.mem_side_port")
+        ctrl->handleRangeChange();
 }
 
 PacketPtr
@@ -153,7 +161,7 @@ SecCtrl::createPkt(Addr addr, unsigned size, bool isRead)
 bool
 SecCtrl::handleRequest(PacketPtr pkt)
 {
-    if (blocked || meta_blocked) {
+    if (blocked || cnt_blocked || mt_blocked || mac_blocked) {
         DPRINTF(SecCtrl, "Rejected %s\n", pkt->print());
         return false;
     }
@@ -161,10 +169,16 @@ SecCtrl::handleRequest(PacketPtr pkt)
     // DPRINTF(SecCtrl, "Got request for addr %#x\n", pkt->getAddr());
 
     blocked = true;
-    meta_blocked = true;
+    cnt_blocked = true;
+    mt_blocked = true;
+    mac_blocked = true;
     memSidePort.sendPacket(pkt);
-    PacketPtr metaPkt = createPkt(dataBorder, 1, true);
-    metaPort.sendPacket(metaPkt);
+    PacketPtr cntPkt = createPkt(dataBorder, 1, true);
+    PacketPtr mtPkt = createPkt(cntBorder, 1, true);
+    PacketPtr macPkt = createPkt(mtBorder, 1, true);
+    cntPort.sendPacket(cntPkt);
+    mtPort.sendPacket(mtPkt);
+    macPort.sendPacket(macPkt);
     return true;
 }
 
@@ -177,14 +191,24 @@ SecCtrl::handleResponse(PacketPtr pkt)
 
         blocked = false;
         responsePkt = pkt;
-    } else {
-        assert(meta_blocked);
-        DPRINTF(SecCtrl, "Got meta response for addr %#x\n", pkt->getAddr());
+    } else if (pkt->getAddr() < cntBorder) {
+        assert(cnt_blocked);
+        DPRINTF(SecCtrl, "Got cnt response for addr %#x\n", pkt->getAddr());
 
-        meta_blocked = false;
+        cnt_blocked = false;
+    } else if (pkt->getAddr() < mtBorder) {
+        assert(mt_blocked);
+        DPRINTF(SecCtrl, "Got mt response for addr %#x\n", pkt->getAddr());
+
+        mt_blocked = false;
+    } else {
+        assert(mac_blocked);
+        DPRINTF(SecCtrl, "Got mac response for addr %#x\n", pkt->getAddr());
+
+        mac_blocked = false;
     }
 
-    if (!blocked && !meta_blocked) {
+    if (!blocked && !cnt_blocked && !mt_blocked && !mac_blocked) {
         if (responsePkt != nullptr) {
             cpuSidePort.sendPacket(responsePkt);
             responsePkt = nullptr;
@@ -210,6 +234,9 @@ SecCtrl::handleFunctional(PacketPtr pkt)
 AddrRangeList
 SecCtrl::getAddrRanges() const
 {
+    cntPort.getAddrRanges();
+    mtPort.getAddrRanges();
+    macPort.getAddrRanges();
     return memSidePort.getAddrRanges();
 }
 
@@ -228,8 +255,12 @@ SecCtrl::getPort(const std::string &if_name, PortID idx)
         return cpuSidePort;
     } else if (if_name == "mem_side_port") {
         return memSidePort;
-    } else if (if_name == "meta_port") {
-        return metaPort;
+    } else if (if_name == "cnt_port") {
+        return cntPort;
+    } else if (if_name == "mt_port") {
+        return mtPort;
+    } else if (if_name == "mac_port") {
+        return macPort;
     } else {
         return SimObject::getPort(if_name, idx);
     }

@@ -2,6 +2,7 @@ import m5.objects
 from m5.objects import *
 from common import ObjectList
 from common import HMC
+from MetaCache import MetaCache
 
 def create_mem_intf(intf, r, i, nbr_mem_ctrls, intlv_bits, intlv_size,
                     xor_low_bit):
@@ -241,10 +242,24 @@ def config_mem(options, system):
             # the memory controllers and the membus
             subsystem.sec_ctrl = SecCtrl()
             subsystem.sec_xbar = SystemXBar()
-            subsystem.sec_xbar.cpu_side_ports =
-                subsystem.sec_ctrl.mem_side_port
-            subsystem.sec_xbar.cpu_side_ports = subsystem.sec_ctrl.meta_port
-            mem_ctrls[i].port = subsystem.sec_xbar.mem_side_ports
             xbar.mem_side_ports = subsystem.sec_ctrl.cpu_side_port
+            subsystem.sec_xbar.cpu_side_ports = subsystem.sec_ctrl.mem_side_port
+
+            subsystem.cnt_cache = MetaCache()
+            subsystem.cnt_cache.cpu_side = subsystem.sec_ctrl.cnt_port
+            subsystem.sec_xbar.cpu_side_ports = subsystem.cnt_cache.mem_side
+            #  subsystem.sec_xbar.cpu_side_ports = subsystem.sec_ctrl.cnt_port
+
+            subsystem.mt_cache = MetaCache()
+            subsystem.mt_cache.cpu_side = subsystem.sec_ctrl.mt_port
+            subsystem.sec_xbar.cpu_side_ports = subsystem.mt_cache.mem_side
+            #  subsystem.sec_xbar.cpu_side_ports = subsystem.sec_ctrl.mt_port
+
+            subsystem.mac_cache = MetaCache()
+            subsystem.mac_cache.cpu_side = subsystem.sec_ctrl.mac_port
+            subsystem.sec_xbar.cpu_side_ports = subsystem.mac_cache.mem_side
+            #  subsystem.sec_xbar.cpu_side_ports = subsystem.sec_ctrl.mac_port
+
+            mem_ctrls[i].port = subsystem.sec_xbar.mem_side_ports
 
     subsystem.mem_ctrls = mem_ctrls

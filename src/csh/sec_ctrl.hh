@@ -68,12 +68,18 @@ class SecCtrl : public SimObject
 
     CPUSidePort cpuSidePort;
     MemSidePort memSidePort;
-    MemSidePort metaPort;
+    MemSidePort cntPort;
+    MemSidePort mtPort;
+    MemSidePort macPort;
     Addr dataBorder;
+    Addr cntBorder;
+    Addr mtBorder;
     uint32_t flags;
     uint16_t requestorId;
     bool blocked;
-    bool meta_blocked;
+    bool cnt_blocked;
+    bool mt_blocked;
+    bool mac_blocked;
     PacketPtr responsePkt;
 
   public:
